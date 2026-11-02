@@ -16,6 +16,12 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>assets\KeyShare.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Also embedded as a resource so the window and tray can load the size they need. -->
+    <EmbeddedResource Include="assets\KeyShare.ico" LogicalName="KeyShare.ico" />
+  </ItemGroup>
 
 </Project>

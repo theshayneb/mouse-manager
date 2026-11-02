@@ -1,5 +1,3 @@
-using System.Drawing.Drawing2D;
-
 namespace KeyShare;
 
 internal sealed class MainForm : Form
@@ -41,7 +39,7 @@ internal sealed class MainForm : Form
     {
         _startMinimized = startMinimized;
         Text = "KeyShare";
-        Icon = MakeIcon();
+        Icon = LoadIcon(SystemInformation.IconSize);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -53,7 +51,7 @@ internal sealed class MainForm : Form
 
         BuildLayout();
 
-        _tray.Icon = Icon;
+        _tray.Icon = LoadIcon(SystemInformation.SmallIconSize);
         _tray.Text = "KeyShare";
         _tray.Visible = true;
         _tray.DoubleClick += (_, _) => ShowFromTray();
@@ -336,25 +334,10 @@ internal sealed class MainForm : Form
         base.OnFormClosing(e);
     }
 
-    /// <summary>Two little screens, drawn so there is no icon file to ship.</summary>
-    private static Icon MakeIcon()
+    /// <summary>The app icon at the closest size to <paramref name="size"/>.</summary>
+    private static Icon LoadIcon(Size size)
     {
-        using var bmp = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var a = new SolidBrush(Color.FromArgb(0, 120, 212));
-            using var b = new SolidBrush(Color.FromArgb(16, 137, 62));
-            using var white = new Pen(Color.White, 2f);
-            g.FillRectangle(a, 1, 6, 14, 12);
-            g.FillRectangle(b, 17, 6, 14, 12);
-            g.DrawLine(white, 9, 12, 23, 12);
-            g.DrawLine(white, 19, 9, 23, 12);
-            g.DrawLine(white, 19, 15, 23, 12);
-            using var foot = new SolidBrush(Color.FromArgb(90, 90, 90));
-            g.FillRectangle(foot, 4, 21, 24, 4);
-        }
-        return Icon.FromHandle(bmp.GetHicon());
+        using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("KeyShare.ico");
+        return stream == null ? SystemIcons.Application : new Icon(stream, size);
     }
 }

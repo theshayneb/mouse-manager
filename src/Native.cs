@@ -86,6 +86,17 @@ internal static class Native
 
     public const int WM_CLIPBOARDUPDATE = 0x031D;
 
+    public const uint ES_SYSTEM_REQUIRED = 0x00000001, ES_DISPLAY_REQUIRED = 0x00000002;
+
+    [DllImport("kernel32.dll")]
+    public static extern uint SetThreadExecutionState(uint esFlags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool AddClipboardFormatListener(IntPtr hwnd);
 

@@ -48,6 +48,15 @@ Then:
   (RTF, for Word and Outlook) and images are shared, up to 32 MB. Files are not.
   Turn it off with **Share clipboard**. Passwords copied from password managers
   that mark them as private (most do) are never sent.
+- **Screen timeouts:** while you use either PC, the other one doesn't turn its
+  screen off, go to sleep or lock. So you can work on one for an hour and the
+  other is still unlocked when you switch to it. Walk away from both, and both
+  time out and lock as they normally would. Turn this off with **Keep both PCs
+  awake while I'm using either one**. (A work PC with a strict IT lock policy
+  may still lock on its own schedule.)
+- **Locked or asleep:** if the PC being controlled does lock, unlock it with its
+  own keyboard. Windows doesn't let apps type on the sign-in screen. After sleep
+  or a lock, KeyShare reconnects within a few seconds.
 - Tick **Start with Windows** on both PCs and they reconnect by themselves after
   a restart. If the link drops, the joining PC keeps retrying, and the host takes
   the mouse back right away so you are never stuck.

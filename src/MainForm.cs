@@ -1,3 +1,5 @@
+using Microsoft.Win32;
+
 namespace KeyShare;
 
 internal sealed class MainForm : Form
@@ -23,6 +25,8 @@ internal sealed class MainForm : Form
     private readonly Label _lblStatus = new() { AutoSize = true, MaximumSize = new Size(440, 0), Margin = new Padding(3, 10, 3, 6) };
     private readonly CheckBox _cbStartup = new() { Text = "Start with Windows", AutoSize = true };
     private readonly CheckBox _cbClipboard = new() { Text = "Share clipboard (text and images)", AutoSize = true };
+    private readonly CheckBox _cbAwake = new() { Text = "Keep both PCs awake while I'm using either one", AutoSize = true };
+    private readonly System.Windows.Forms.Timer _activityTimer = new() { Interval = (int)Power.PingEvery.TotalMilliseconds };
 
     private readonly ClipboardSync _clip = new();
     private readonly System.Windows.Forms.Timer _clipTimer = new() { Interval = 200 };
@@ -83,6 +87,18 @@ internal sealed class MainForm : Form
         };
         _clipTimer.Tick += (_, _) => SendClipboard();
 
+        _cbAwake.Checked = Power.Enabled = _settings.StayAwakeTogether;
+        _cbAwake.CheckedChanged += (_, _) =>
+        {
+            Power.Enabled = _settings.StayAwakeTogether = _cbAwake.Checked;
+            _settings.Save();
+        };
+        _activityTimer.Tick += (_, _) => SendActivity();
+        _activityTimer.Start();
+
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+
         _rbHost.CheckedChanged += (_, _) => { if (_rbHost.Checked) SwitchRole(true); };
         _rbJoin.CheckedChanged += (_, _) => { if (_rbJoin.Checked) SwitchRole(false); };
         _btnCopy.Click += (_, _) => { try { Clipboard.SetText(_settings.HostCode); } catch { } };
@@ -134,6 +150,7 @@ internal sealed class MainForm : Form
 
         root.Controls.Add(_lblStatus);
         root.Controls.Add(_cbClipboard);
+        root.Controls.Add(_cbAwake);
         root.Controls.Add(_cbStartup);
         root.Controls.Add(_lblTip);
         Controls.Add(root);
@@ -291,6 +308,56 @@ internal sealed class MainForm : Form
         UpdateUi();
     }
 
+    // ---- Sleep, lock and idle --------------------------------------------
+
+    private void SendActivity()
+    {
+        // Only "this PC is being used" goes out; the other PC decides whether to act on it.
+        if (!Power.Enabled || !Power.InUse()) return;
+        _host?.Send(Protocol.Activity);
+        _client?.Send(Protocol.Activity);
+    }
+
+    // SystemEvents arrive on their own thread.
+    private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e) => OnUi(() =>
+    {
+        switch (e.Reason)
+        {
+            case SessionSwitchReason.SessionLock:
+                // Locked while controlling the other PC: bring the mouse home so nothing stays parked.
+                _capture?.ReturnToLocal(-1, tellOther: true);
+                Log.Info("Session locked");
+                break;
+            case SessionSwitchReason.SessionUnlock:
+                Log.Info("Session unlocked");
+                ReinstallHooks();
+                break;
+        }
+    });
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Resume) return;
+        Log.Info("Woke from sleep");
+        OnUi(() =>
+        {
+            _capture?.ForceLocal();
+            ReinstallHooks();
+            _host?.DropLink();     // the old connection didn't survive sleep
+            _client?.Reconnect();  // so start a fresh one now instead of waiting for a timeout
+        });
+    }
+
+    private void ReinstallHooks()
+    {
+        try { _capture?.Reinstall(); }
+        catch (Exception ex)
+        {
+            Log.Error("Reinstalling hooks", ex);
+            SetStatus("Lost the keyboard and mouse hooks. Click Stop sharing, then Start sharing.");
+        }
+    }
+
     // ---- Clipboard -------------------------------------------------------
 
     protected override void OnHandleCreated(EventArgs e)
@@ -421,6 +488,8 @@ internal sealed class MainForm : Form
         _settings.Save();
         _tray.Visible = false;
         _tray.Dispose();
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         base.OnFormClosing(e);
     }
 

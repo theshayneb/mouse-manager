@@ -11,6 +11,7 @@ internal sealed class Settings
     public string JoinCode { get; set; } = "";
     public string JoinAddress { get; set; } = "";
     public bool ShareClipboard { get; set; } = true;
+    public bool StayAwakeTogether { get; set; } = true;
     /// <summary>Was sharing/connected when the app closed; resume on next start.</summary>
     public bool Running { get; set; }
 

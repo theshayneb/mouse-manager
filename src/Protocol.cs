@@ -18,6 +18,7 @@ internal enum Msg : byte
     Return = 7,   // client -> host: float position along the edge (0..1)
     Ping = 8,     // either way, keeps the link alive
     Clip = 9,     // either way: one chunk of clipboard contents (see ClipboardSync)
+    Activity = 10, // either way: "someone is using me", so the other PC doesn't time out
     Hello = 0x10, // handshake: UTF-8 machine name
 }
 
@@ -30,6 +31,7 @@ internal static class Protocol
 
     public static readonly byte[] Ping = [(byte)Msg.Ping];
     public static readonly byte[] Leave = [(byte)Msg.Leave];
+    public static readonly byte[] Activity = [(byte)Msg.Activity];
 
     public static byte[] Move(int dx, int dy)
     {

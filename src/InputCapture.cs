@@ -41,6 +41,11 @@ internal sealed class InputCapture : IDisposable
         _send = send;
         _keyProc = KeyboardProc;
         _mouseProc = MouseProc;
+        Install();
+    }
+
+    private void Install()
+    {
         IntPtr module = GetModuleHandle(null);
         _keyHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyProc, module, 0);
         _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, module, 0);
@@ -50,6 +55,16 @@ internal sealed class InputCapture : IDisposable
             Dispose();
             throw new InvalidOperationException($"Could not install input hooks (error {err}).");
         }
+    }
+
+    /// <summary>
+    /// Puts the hooks back. Windows silently drops a hook that is slow to answer,
+    /// which can happen while the PC wakes up, so this runs after sleep and unlock.
+    /// </summary>
+    public void Reinstall()
+    {
+        Dispose();
+        Install();
     }
 
     // ---- Switching ------------------------------------------------------
@@ -165,7 +180,7 @@ internal sealed class InputCapture : IDisposable
                     return false;
                 }
                 int dx = m.pt.X - _park.X, dy = m.pt.Y - _park.Y;
-                if (dx != 0 || dy != 0) _send(Protocol.Move(dx, dy));
+                if (dx != 0 || dy != 0) { _send(Protocol.Move(dx, dy)); Power.NoteForwardedInput(); }
                 return true; // the local cursor stays parked
 
             case WM_LBUTTONDOWN: return Button(0, true);
@@ -235,6 +250,7 @@ internal sealed class InputCapture : IDisposable
         if (owner == Swallow) return true;
         if (owner != Remote) return false;
         _send(Protocol.Key(vk, (int)k.scanCode, up, (k.flags & LLKHF_EXTENDED) != 0));
+        Power.NoteForwardedInput();
         return true;
     }
 

@@ -28,6 +28,9 @@ internal sealed class HostService : IDisposable
     public void Send(byte[] message) => Volatile.Read(ref _current)?.Send(message);
     public void SendBulk(byte[] message) => Volatile.Read(ref _current)?.SendBulk(message);
 
+    /// <summary>Drops the current link (after waking from sleep, it's probably dead). The other PC reconnects.</summary>
+    public void DropLink() => Volatile.Read(ref _current)?.Dispose();
+
     public void Start()
     {
         _listener = new TcpListener(IPAddress.Any, Protocol.TcpPort);
@@ -94,6 +97,8 @@ internal sealed class HostService : IDisposable
             ReturnRequested?.Invoke(BinaryPrimitives.ReadSingleLittleEndian(m.AsSpan(1)));
         else if (m[0] == (byte)Msg.Clip)
             ClipboardChunk?.Invoke(m);
+        else if (m[0] == (byte)Msg.Activity)
+            Power.OtherPcActive();
     }
 
     public void Dispose()

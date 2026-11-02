@@ -32,7 +32,11 @@ internal sealed class ClientService : IDisposable
 
     public void Start() => _ = Task.Run(() => RunAsync(_cts.Token));
 
+    public void Send(byte[] message) => _link?.Send(message);
     public void SendBulk(byte[] message) => _link?.SendBulk(message);
+
+    /// <summary>Drops the link and reconnects right away (used after waking from sleep).</summary>
+    public void Reconnect() => _link?.Dispose();
 
     private async Task RunAsync(CancellationToken ct)
     {
@@ -77,6 +81,7 @@ internal sealed class ClientService : IDisposable
                     link.Start(m =>
                     {
                         if (m[0] == (byte)Msg.Clip) ClipboardChunk?.Invoke(m);
+                        else if (m[0] == (byte)Msg.Activity) Power.OtherPcActive();
                         else _injector.Handle(m);
                     });
                     await link.Completion;

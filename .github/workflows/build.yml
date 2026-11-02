@@ -1,0 +1,37 @@
+name: Build KeyShare
+
+# Builds the KeyShare Windows app on every push and pull request.
+# Download the .exe from the run's "Artifacts" section.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Small exe (needs the .NET 10 Desktop Runtime)
+        run: dotnet publish KeyShare.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:TreatWarningsAsErrors=true -o out/small
+
+      - name: Standalone exe (no runtime needed)
+        run: dotnet publish KeyShare.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o out/standalone
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KeyShare-small
+          path: out/small/KeyShare.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KeyShare-standalone
+          path: out/standalone/KeyShare.exe

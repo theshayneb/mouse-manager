@@ -145,11 +145,19 @@ internal sealed class InputInjector
     {
         // Scan codes reproduce the physical key, so the other PC's own keyboard
         // layout applies. Media keys and Pause only work by virtual-key code.
-        bool byVk = scan == 0 || vk == 0x13 || (vk >= 0xA6 && vk <= 0xB7);
+        //
+        // Modifiers (Shift, Ctrl, Alt, Windows) also go by virtual-key code: their
+        // codes are the same on every layout, and Windows' keyboard hook can report
+        // the "extended" flag wrongly for them (Right Shift in particular). Replayed
+        // by scan code, that turns Shift into a key apps don't recognise as Shift,
+        // so Shift+Enter arrived as a plain Enter.
+        bool modifier = vk is >= 0x10 and <= 0x12 or >= 0xA0 and <= 0xA5 or 0x5B or 0x5C;
+        if (modifier) ext = vk is 0xA3 or 0xA5 or 0x5B or 0x5C; // right Ctrl, right Alt, Windows keys
+        bool byVk = modifier || scan == 0 || vk == 0x13 || (vk >= 0xA6 && vk <= 0xB7);
         var ki = new KEYBDINPUT
         {
             wVk = byVk ? vk : (ushort)0,
-            wScan = scan,
+            wScan = (ushort)(scan & 0xFF),
             dwFlags = (byVk ? 0 : KEYEVENTF_SCANCODE) | (ext ? KEYEVENTF_EXTENDEDKEY : 0) | (up ? KEYEVENTF_KEYUP : 0),
         };
         return new INPUT { type = INPUT_KEYBOARD, u = new InputUnion { ki = ki } };

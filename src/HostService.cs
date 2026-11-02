@@ -19,12 +19,14 @@ internal sealed class HostService : IDisposable
     public event Action<string>? Connected;    // peer name
     public event Action? Disconnected;
     public event Action<float>? ReturnRequested;
+    public event Action<byte[]>? ClipboardChunk; // raised on a network thread
 
     public HostService(string code) => _code = code;
 
     public bool IsConnected => Volatile.Read(ref _current) != null;
 
     public void Send(byte[] message) => Volatile.Read(ref _current)?.Send(message);
+    public void SendBulk(byte[] message) => Volatile.Read(ref _current)?.SendBulk(message);
 
     public void Start()
     {
@@ -90,6 +92,8 @@ internal sealed class HostService : IDisposable
     {
         if (m[0] == (byte)Msg.Return && m.Length >= 5)
             ReturnRequested?.Invoke(BinaryPrimitives.ReadSingleLittleEndian(m.AsSpan(1)));
+        else if (m[0] == (byte)Msg.Clip)
+            ClipboardChunk?.Invoke(m);
     }
 
     public void Dispose()

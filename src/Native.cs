@@ -84,6 +84,14 @@ internal static class Native
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
 
+    public const int WM_CLIPBOARDUPDATE = 0x031D;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool AddClipboardFormatListener(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
 
     public static void Send(params INPUT[] inputs)

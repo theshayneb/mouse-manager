@@ -17,6 +17,7 @@ internal enum Msg : byte
     Leave = 6,    // host -> client: control went back to the host
     Return = 7,   // client -> host: float position along the edge (0..1)
     Ping = 8,     // either way, keeps the link alive
+    Clip = 9,     // either way: one chunk of clipboard contents (see ClipboardSync)
     Hello = 0x10, // handshake: UTF-8 machine name
 }
 

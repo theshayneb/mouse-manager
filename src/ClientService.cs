@@ -13,9 +13,11 @@ internal sealed class ClientService : IDisposable
     private readonly string _address;
     private readonly CancellationTokenSource _cts = new();
     private readonly InputInjector _injector = new();
-    private SecureLink? _link;
+    private volatile SecureLink? _link;
 
     public event Action<string>? Status;
+    public event Action<byte[]>? ClipboardChunk; // raised on a network thread
+    public bool IsConnected => _link != null;
     public event Action<bool>? ActiveChanged
     {
         add => _injector.ActiveChanged += value;
@@ -29,6 +31,8 @@ internal sealed class ClientService : IDisposable
     }
 
     public void Start() => _ = Task.Run(() => RunAsync(_cts.Token));
+
+    public void SendBulk(byte[] message) => _link?.SendBulk(message);
 
     private async Task RunAsync(CancellationToken ct)
     {
@@ -70,7 +74,11 @@ internal sealed class ClientService : IDisposable
                     Log.Info($"Connected to {link.PeerName} ({link.PeerAddress})");
                     _link = link;
                     _injector.RequestReturn = along => link.Send(Protocol.Return(along));
-                    link.Start(_injector.Handle);
+                    link.Start(m =>
+                    {
+                        if (m[0] == (byte)Msg.Clip) ClipboardChunk?.Invoke(m);
+                        else _injector.Handle(m);
+                    });
                     await link.Completion;
                     _link = null;
                     _injector.ReleaseAll();

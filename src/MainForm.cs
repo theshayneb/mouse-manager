@@ -22,6 +22,12 @@ internal sealed class MainForm : Form
 
     private readonly Label _lblStatus = new() { AutoSize = true, MaximumSize = new Size(440, 0), Margin = new Padding(3, 10, 3, 6) };
     private readonly CheckBox _cbStartup = new() { Text = "Start with Windows", AutoSize = true };
+    private readonly CheckBox _cbClipboard = new() { Text = "Share clipboard (text and images)", AutoSize = true };
+
+    private readonly ClipboardSync _clip = new();
+    private readonly System.Windows.Forms.Timer _clipTimer = new() { Interval = 200 };
+    private long _ignoreClipboardUntil;
+    private volatile bool _shareClipboard;
     private readonly Label _lblTip = new()
     {
         AutoSize = true, MaximumSize = new Size(440, 0), ForeColor = SystemColors.GrayText,
@@ -69,6 +75,13 @@ internal sealed class MainForm : Form
         _tbAddress.Text = _settings.JoinAddress;
         (_settings.IsHost ? _rbHost : _rbJoin).Checked = true;
         try { _cbStartup.Checked = Settings.StartsWithWindows; } catch { }
+        _cbClipboard.Checked = _shareClipboard = _settings.ShareClipboard;
+        _cbClipboard.CheckedChanged += (_, _) =>
+        {
+            _shareClipboard = _settings.ShareClipboard = _cbClipboard.Checked;
+            _settings.Save();
+        };
+        _clipTimer.Tick += (_, _) => SendClipboard();
 
         _rbHost.CheckedChanged += (_, _) => { if (_rbHost.Checked) SwitchRole(true); };
         _rbJoin.CheckedChanged += (_, _) => { if (_rbJoin.Checked) SwitchRole(false); };
@@ -120,6 +133,7 @@ internal sealed class MainForm : Form
         root.Controls.Add(_joinBox);
 
         root.Controls.Add(_lblStatus);
+        root.Controls.Add(_cbClipboard);
         root.Controls.Add(_cbStartup);
         root.Controls.Add(_lblTip);
         Controls.Add(root);
@@ -218,6 +232,7 @@ internal sealed class MainForm : Form
                 SetStatus("The other PC disconnected. Waiting for it to come back…");
             });
             host.ReturnRequested += along => OnUi(() => _capture?.ReturnToLocal(along, tellOther: false));
+            host.ClipboardChunk += ReceiveClipboard;
             capture.RemoteChanged += remote => OnUi(() => SetRemote(remote));
 
             host.Start();
@@ -255,6 +270,7 @@ internal sealed class MainForm : Form
 
         var client = new ClientService(code, _settings.JoinAddress);
         client.Status += s => OnUi(() => SetStatus(s));
+        client.ClipboardChunk += ReceiveClipboard;
         client.ActiveChanged += active => OnUi(() => _tray.Text = active ? "KeyShare: controlled remotely" : "KeyShare");
         _client = client;
         client.Start();
@@ -273,6 +289,80 @@ internal sealed class MainForm : Form
         _settings.Save();
         SetStatus("Not running.");
         UpdateUi();
+    }
+
+    // ---- Clipboard -------------------------------------------------------
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Native.AddClipboardFormatListener(Handle);
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        Native.RemoveClipboardFormatListener(Handle);
+        base.OnHandleDestroyed(e);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == Native.WM_CLIPBOARDUPDATE && Environment.TickCount64 >= _ignoreClipboardUntil)
+        {
+            // Apps often update the clipboard several times in a row; send once it settles.
+            _clipTimer.Stop();
+            _clipTimer.Start();
+        }
+        base.WndProc(ref m);
+    }
+
+    private void SendClipboard()
+    {
+        _clipTimer.Stop();
+        if (!_shareClipboard) return;
+        Action<byte[]>? send = null;
+        if (_host is { IsConnected: true } h) send = h.SendBulk;
+        else if (_client is { IsConnected: true } c) send = c.SendBulk;
+        if (send == null) return;
+
+        string? text, rtf;
+        Image? image;
+        try { (text, rtf, image) = ClipboardSync.Read(); }
+        catch (Exception ex) { Log.Error("Reading clipboard", ex); return; }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var chunks = _clip.Pack(text, rtf, image);
+                if (chunks != null) foreach (var chunk in chunks) send(chunk);
+            }
+            catch (Exception ex) { Log.Error("Sending clipboard", ex); }
+            finally { image?.Dispose(); }
+        });
+    }
+
+    /// <summary>Called on a network thread for each clipboard chunk from the other PC.</summary>
+    private void ReceiveClipboard(byte[] chunk)
+    {
+        if (!_shareClipboard) return;
+        var bundle = _clip.Accept(chunk);
+        if (bundle == null) return;
+        try
+        {
+            _clip.NoteReceived(bundle);
+            var (text, rtf, image) = ClipboardSync.Unpack(bundle);
+            OnUi(() =>
+            {
+                _ignoreClipboardUntil = Environment.TickCount64 + 1000; // don't echo it back
+                try { ClipboardSync.Set(text, rtf, image); }
+                catch (Exception ex) { Log.Error("Setting clipboard", ex); }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Receiving clipboard", ex);
+        }
     }
 
     // ---- UI -------------------------------------------------------------

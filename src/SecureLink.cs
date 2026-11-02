@@ -21,9 +21,9 @@ internal sealed class WrongCodeException(string message) : Exception(message);
 /// </summary>
 internal sealed class SecureLink : IDisposable
 {
-    private static readonly byte[] Magic = "KSH1"u8.ToArray();
+    private static readonly byte[] Magic = "KSH2"u8.ToArray();
     private const int TagSize = 16;
-    private const int MaxFrame = 4096;
+    private const int MaxFrame = ushort.MaxValue;
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(2);
 
@@ -33,6 +33,8 @@ internal sealed class SecureLink : IDisposable
     private readonly byte[] _sendNonce = new byte[12], _recvNonce = new byte[12];
     private ulong _sendCounter, _recvCounter;
     private readonly Channel<byte[]> _outbox = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+    // Clipboard chunks. Sent only when no input is waiting, so a big copy never delays the mouse.
+    private readonly Channel<byte[]> _bulk = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
     private readonly CancellationTokenSource _cts = new();
     private long _lastReceive = Environment.TickCount64;
     private int _disposed;
@@ -174,6 +176,9 @@ internal sealed class SecureLink : IDisposable
     /// <summary>Queue a message. Safe to call from any thread, never blocks.</summary>
     public void Send(byte[] message) => _outbox.Writer.TryWrite(message);
 
+    /// <summary>Queue a low-priority message, such as a clipboard chunk.</summary>
+    public void SendBulk(byte[] message) => _bulk.Writer.TryWrite(message);
+
     /// <summary>Starts the reader, writer and watchdog. <see cref="Completion"/> finishes when the link drops.</summary>
     public void Start(Action<byte[]> onMessage) => Completion = RunAsync(onMessage);
 
@@ -211,22 +216,29 @@ internal sealed class SecureLink : IDisposable
 
     private async Task WriteLoopAsync(CancellationToken ct)
     {
-        var reader = _outbox.Reader;
+        var input = _outbox.Reader;
+        var bulk = _bulk.Reader;
         try
         {
             while (!ct.IsCancellationRequested)
             {
+                // Input first, always; then one clipboard chunk; then check input again.
+                if (input.TryRead(out var m)) { await WriteFrameAsync(m, ct); continue; }
+                if (bulk.TryRead(out var b)) { await WriteFrameAsync(b, ct); continue; }
+
                 using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 wait.CancelAfter(PingEvery);
-                bool hasData;
-                try { hasData = await reader.WaitToReadAsync(wait.Token); }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                var a1 = input.WaitToReadAsync(wait.Token).AsTask();
+                var a2 = bulk.WaitToReadAsync(wait.Token).AsTask();
+                await Task.WhenAny(a1, a2);
+                wait.Cancel(); // release whichever wait is still pending
+                if (ct.IsCancellationRequested) break;
+                bool ready = (a1.IsCompletedSuccessfully && a1.Result) || (a2.IsCompletedSuccessfully && a2.Result);
+                if (!ready)
                 {
-                    await WriteFrameAsync(Protocol.Ping, ct);
-                    continue;
+                    if (a1.IsCompletedSuccessfully && a2.IsCompletedSuccessfully) break; // both closed
+                    await WriteFrameAsync(Protocol.Ping, ct); // idle: keep the link alive
                 }
-                if (!hasData) break;
-                while (reader.TryRead(out var m)) await WriteFrameAsync(m, ct);
             }
         }
         catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException or SocketException)
@@ -262,6 +274,7 @@ internal sealed class SecureLink : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         try { _cts.Cancel(); } catch { }
         _outbox.Writer.TryComplete();
+        _bulk.Writer.TryComplete();
         try { _tcp.Dispose(); } catch { }
         // The AES objects are left for the GC: a loop may still be finishing a frame.
     }

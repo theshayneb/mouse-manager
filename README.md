@@ -44,6 +44,10 @@ Then:
 - The edge doesn't switch while a mouse button is held, so dragging a window to
   snap it still works.
 - The other PC's own keyboard and mouse keep working.
+- **Clipboard:** copy on either PC and paste on the other. Text, formatted text
+  (RTF, for Word and Outlook) and images are shared, up to 32 MB. Files are not.
+  Turn it off with **Share clipboard**. Passwords copied from password managers
+  that mark them as private (most do) are never sent.
 - Tick **Start with Windows** on both PCs and they reconnect by themselves after
   a restart. If the link drops, the joining PC keeps retrying, and the host takes
   the mouse back right away so you are never stuck.
@@ -59,11 +63,13 @@ Then:
   keystrokes, and a PC without the code can't connect. The host allows about one
   wrong code per second. The code has 40 bits, which is plenty for a home or
   office network, but don't expose the port to the internet.
+- Both PCs need the same version of KeyShare. A mismatch shows an error instead
+  of connecting.
 - Keys are sent as physical scan codes, so each PC uses its own keyboard layout.
   If you switch PCs while holding a key, its release still goes to the PC that
   saw it pressed, so keys don't get stuck.
 - Windows doesn't let normal apps control windows that run as administrator,
   such as Task Manager or UAC prompts. To control those, run KeyShare as
   administrator on the PC being controlled. **Ctrl+Alt+Del** can't be sent.
-- One host and one joined PC. There's no clipboard or file sharing.
+- One host and one joined PC. There's no file sharing.
 - Problems are logged to `%APPDATA%\KeyShare\log.txt`.

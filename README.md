@@ -12,7 +12,7 @@ Every push builds the app on GitHub Actions. Open the latest
 - **KeyShare-small**: about 100 KB. Needs the
   [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
   If it isn't installed, Windows offers to install it the first time you run the app.
-- **KeyShare-standalone**: about 45 MB, that runs without installing anything.
+- **KeyShare-standalone**: about 45 MB. Runs without installing anything.
 
 Or build it yourself with the .NET 10 SDK:
 

@@ -20,6 +20,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Windows service support, for the optional lock-screen helper. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Also embedded as a resource so the window and tray can load the size they need. -->
     <EmbeddedResource Include="assets\KeyShare.ico" LogicalName="KeyShare.ico" />
   </ItemGroup>

@@ -5,6 +5,12 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Lock-screen typing (see UnlockService). These run without the tray app.
+        if (args.Contains("--service")) { System.ServiceProcess.ServiceBase.Run(new UnlockServiceHost()); return; }
+        if (args.Contains("--unlock-helper")) { UnlockHelper.Run(); return; }
+        if (args.Contains("--install-service")) { Environment.ExitCode = UnlockService.InstallFromCommandLine(); return; }
+        if (args.Contains("--uninstall-service")) { Environment.ExitCode = UnlockService.UninstallFromCommandLine(); return; }
+
         using var single = new Mutex(true, @"Local\KeyShare-single-instance", out bool first);
         if (!first)
         {

@@ -54,9 +54,11 @@ Then:
   time out and lock as they normally would. Turn this off with **Keep both PCs
   awake while I'm using either one**. (A work PC with a strict IT lock policy
   may still lock on its own schedule.)
-- **Locked or asleep:** if the PC being controlled does lock, unlock it with its
-  own keyboard. Windows doesn't let apps type on the sign-in screen. After sleep
-  or a lock, KeyShare reconnects within a few seconds.
+- **Unlocking the other PC:** on the PC being controlled, tick **Let the other
+  PC type on this PC's lock screen** and say yes to the admin prompt. You can
+  then wake it and type your PIN or password with the shared keyboard. See
+  [Lock-screen typing](#lock-screen-typing) below. After sleep or a lock,
+  KeyShare reconnects within a few seconds.
 - Tick **Start with Windows** on both PCs and they reconnect by themselves after
   a restart. If the link drops, the joining PC keeps retrying, and the host takes
   the mouse back right away so you are never stuck.
@@ -82,3 +84,25 @@ Then:
   administrator on the PC being controlled. **Ctrl+Alt+Del** can't be sent.
 - One host and one joined PC. There's no file sharing.
 - Problems are logged to `%APPDATA%\KeyShare\log.txt`.
+
+## Lock-screen typing
+
+Windows doesn't let normal apps type on the lock screen; only the built-in
+SYSTEM account can. So this option installs a small Windows service named
+**KeyShare unlock helper**:
+
+- It copies `KeyShare.exe` to `C:\Program Files\KeyShare`, where only
+  administrators can change it, and runs it as a service. It does nothing but
+  keep a helper running in your session.
+- While your PC is locked, KeyShare passes the keys it receives to that helper,
+  which types them on the lock screen. The rest of the time the helper ignores
+  input completely, so it can't be used to approve admin (UAC) prompts or
+  control admin windows.
+- Only your own Windows account can talk to the helper, and not over the
+  network.
+- It works when the PC is **locked** (KeyShare is still running). It doesn't
+  work on the sign-in screen right after a restart or sign-out, because KeyShare
+  isn't running yet. Sign in with that PC's own keyboard there.
+- **After updating KeyShare,** untick and tick the box again so the service gets
+  the new version too.
+- Untick the box to remove the service and its files.

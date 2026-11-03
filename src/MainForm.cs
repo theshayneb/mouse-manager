@@ -21,6 +21,11 @@ internal sealed class MainForm : Form
     private readonly TextBox _tbCode = new() { Width = 160, CharacterCasing = CharacterCasing.Upper, Font = new Font("Consolas", 14f), PlaceholderText = "XXXX-XXXX" };
     private readonly TextBox _tbAddress = new() { Width = 160, PlaceholderText = "automatic" };
     private readonly Button _btnJoin = new() { AutoSize = true, MinimumSize = new Size(140, 0) };
+    private readonly CheckBox _cbUnlock = new()
+    {
+        Text = "Let the other PC type on this PC's lock screen (asks for admin once)",
+        AutoSize = true, AutoCheck = false, Margin = new Padding(3, 8, 3, 3),
+    };
 
     private readonly Label _lblStatus = new() { AutoSize = true, MaximumSize = new Size(440, 0), Margin = new Padding(3, 10, 3, 6) };
     private readonly CheckBox _cbStartup = new() { Text = "Start with Windows", AutoSize = true };
@@ -96,6 +101,9 @@ internal sealed class MainForm : Form
         _activityTimer.Tick += (_, _) => SendActivity();
         _activityTimer.Start();
 
+        _cbUnlock.Checked = UnlockService.IsInstalled();
+        _cbUnlock.Click += async (_, _) => await ToggleUnlockServiceAsync();
+
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
@@ -145,6 +153,8 @@ internal sealed class MainForm : Form
         joinGrid.Controls.Add(Caption("Host address"), 0, 1);
         joinGrid.Controls.Add(Row(_tbAddress, new Label { Text = "(optional IP)", AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 3) }), 1, 1);
         joinGrid.Controls.Add(_btnJoin, 1, 2);
+        joinGrid.Controls.Add(_cbUnlock, 0, 3);
+        joinGrid.SetColumnSpan(_cbUnlock, 2);
         _joinBox.Controls.Add(joinGrid);
         root.Controls.Add(_joinBox);
 
@@ -324,11 +334,13 @@ internal sealed class MainForm : Form
         switch (e.Reason)
         {
             case SessionSwitchReason.SessionLock:
+                InputSink.SessionLocked = true; // hand received keys to the lock-screen helper
                 // Locked while controlling the other PC: bring the mouse home so nothing stays parked.
                 _capture?.ReturnToLocal(-1, tellOther: true);
                 Log.Info("Session locked");
                 break;
             case SessionSwitchReason.SessionUnlock:
+                InputSink.SessionLocked = false;
                 Log.Info("Session unlocked");
                 ReinstallHooks();
                 break;
@@ -346,6 +358,25 @@ internal sealed class MainForm : Form
             _host?.DropLink();     // the old connection didn't survive sleep
             _client?.Reconnect();  // so start a fresh one now instead of waiting for a timeout
         });
+    }
+
+    private async Task ToggleUnlockServiceAsync()
+    {
+        bool install = !_cbUnlock.Checked;
+        _cbUnlock.Enabled = false;
+        try
+        {
+            await UnlockService.RunElevatedAsync(install ? "--install-service" : "--uninstall-service");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Lock-screen setting", ex);
+        }
+        finally
+        {
+            _cbUnlock.Checked = UnlockService.IsInstalled();
+            _cbUnlock.Enabled = true;
+        }
     }
 
     private void ReinstallHooks()

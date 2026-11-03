@@ -8,6 +8,7 @@ internal sealed class InputInjector
 {
     private readonly object _gate = new();
     private bool _active;
+    private POINT _lastPos;
     private Side _hostSide; // the host's setting: where THIS PC sits relative to the host
     private readonly Dictionary<int, (ushort vk, ushort scan, bool ext)> _keysDown = new();
     private readonly bool[] _buttonsDown = new bool[5];
@@ -76,7 +77,8 @@ internal sealed class InputInjector
                 _ => (ax, vs.Bottom - 3),
             };
         }
-        SetCursorPos(x, y);
+        InputSink.SetCursor(x, y);
+        _lastPos = new POINT(x, y);
         NudgeMouse();
         SetActive(true);
     }
@@ -84,7 +86,8 @@ internal sealed class InputInjector
     private void Move(int dx, int dy)
     {
         if (!_active) return;
-        GetCursorPos(out var p);
+        // While locked, this app can't read the cursor; use where it last put it.
+        if (InputSink.SessionLocked || !GetCursorPos(out var p)) p = _lastPos;
         int nx = p.X + dx, ny = p.Y + dy;
         var vs = VirtualScreen();
 
@@ -107,12 +110,13 @@ internal sealed class InputInjector
 
         nx = Math.Clamp(nx, vs.Left, vs.Right - 1);
         ny = Math.Clamp(ny, vs.Top, vs.Bottom - 1);
-        SetCursorPos(nx, ny);
+        InputSink.SetCursor(nx, ny);
+        _lastPos = new POINT(nx, ny);
         NudgeMouse();
     }
 
     /// <summary>A zero-distance mouse move so apps see real mouse input at the new position (hover, drag and drop).</summary>
-    private static void NudgeMouse() => Native.Send(Mouse(MOUSEEVENTF_MOVE, 0));
+    private static void NudgeMouse() => InputSink.Send(Mouse(MOUSEEVENTF_MOVE, 0));
 
     private bool AnyButtonDown() => _buttonsDown.Any(b => b);
 
@@ -128,17 +132,17 @@ internal sealed class InputInjector
             _ => down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP,
         };
         uint data = index switch { 3 => 1u, 4 => 2u, _ => 0u };
-        Native.Send(Mouse(flags, data));
+        InputSink.Send(Mouse(flags, data));
     }
 
     private static void Wheel(int delta, bool horizontal) =>
-        Native.Send(Mouse(horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL, unchecked((uint)delta)));
+        InputSink.Send(Mouse(horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL, unchecked((uint)delta)));
 
     private void Key(ushort vk, ushort scan, byte flags)
     {
         bool up = (flags & 1) != 0, ext = (flags & 2) != 0;
         if (up) _keysDown.Remove(vk); else _keysDown[vk] = (vk, scan, ext);
-        Native.Send(KeyInput(vk, scan, ext, up));
+        InputSink.Send(KeyInput(vk, scan, ext, up));
     }
 
     private static INPUT KeyInput(ushort vk, ushort scan, bool ext, bool up)
@@ -171,7 +175,7 @@ internal sealed class InputInjector
     {
         lock (_gate)
         {
-            foreach (var (vk, scan, ext) in _keysDown.Values) Native.Send(KeyInput(vk, scan, ext, up: true));
+            foreach (var (vk, scan, ext) in _keysDown.Values) InputSink.Send(KeyInput(vk, scan, ext, up: true));
             _keysDown.Clear();
             for (int i = 0; i < _buttonsDown.Length; i++) if (_buttonsDown[i]) Button(i, false);
             SetActive(false);

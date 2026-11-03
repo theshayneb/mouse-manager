@@ -16,6 +16,8 @@ internal sealed class InputInjector
     /// <summary>Called when the cursor runs off the edge that leads back to the host.</summary>
     public Action<float>? RequestReturn { get; set; }
     public event Action<bool>? ActiveChanged;
+    /// <summary>Control arrived by the switch key, so the cursor jumped to the middle of the screen.</summary>
+    public event Action? ArrivedByKey;
 
     public void Handle(byte[] m)
     {
@@ -27,6 +29,7 @@ internal sealed class InputInjector
                     Enter(m[1] == 1, (Side)m[2], BinaryPrimitives.ReadSingleLittleEndian(m.AsSpan(3)));
                     break;
                 case Msg.Leave:
+                    Log.Info("Control went back to the other PC (switch key)");
                     SetActive(false);
                     break;
                 case Msg.Move when m.Length >= 5:
@@ -79,13 +82,29 @@ internal sealed class InputInjector
         }
         InputSink.SetCursor(x, y);
         _lastPos = new POINT(x, y);
-        NudgeMouse();
+        // A real (if tiny) movement: Windows keeps the pointer hidden until it
+        // sees one, for example after touch input or on a PC with no mouse.
+        InputSink.Send(RelativeMove(1, 0));
+        InputSink.Send(RelativeMove(-1, 0));
+        Log.Info(center ? "Got control (switch key)" : "Got control (edge)");
         SetActive(true);
+        if (center) ArrivedByKey?.Invoke();
     }
 
     private void Move(int dx, int dy)
     {
         if (!_active) return;
+
+        // A game here is holding the mouse (pointer hidden or fenced in). Games
+        // read raw movement, which placing the cursor doesn't produce, so send
+        // real movement. The pointer can't reach an edge like this, so the
+        // switch key is the way back.
+        if (!InputSink.SessionLocked && MouseIsCaptured())
+        {
+            InputSink.Send(RelativeMove(dx, dy));
+            return;
+        }
+
         // While locked, this app can't read the cursor; use where it last put it.
         if (InputSink.SessionLocked || !GetCursorPos(out var p)) p = _lastPos;
         int nx = p.X + dx, ny = p.Y + dy;
@@ -117,6 +136,9 @@ internal sealed class InputInjector
 
     /// <summary>A zero-distance mouse move so apps see real mouse input at the new position (hover, drag and drop).</summary>
     private static void NudgeMouse() => InputSink.Send(Mouse(MOUSEEVENTF_MOVE, 0));
+
+    private static INPUT RelativeMove(int dx, int dy) =>
+        new() { type = INPUT_MOUSE, u = new InputUnion { mi = new MOUSEINPUT { dx = dx, dy = dy, dwFlags = MOUSEEVENTF_MOVE } } };
 
     private bool AnyButtonDown() => _buttonsDown.Any(b => b);
 

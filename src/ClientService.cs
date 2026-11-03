@@ -24,6 +24,12 @@ internal sealed class ClientService : IDisposable
         remove => _injector.ActiveChanged -= value;
     }
 
+    public event Action? ArrivedByKey
+    {
+        add => _injector.ArrivedByKey += value;
+        remove => _injector.ArrivedByKey -= value;
+    }
+
     public ClientService(string code, string address)
     {
         _code = code;

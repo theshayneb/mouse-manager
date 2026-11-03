@@ -85,6 +85,42 @@ internal static class Native
     private static extern int GetSystemMetrics(int nIndex);
 
     public const int WM_CLIPBOARDUPDATE = 0x031D;
+    public const int WM_HOTKEY = 0x0312;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint modifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetClipCursor(out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClipCursor(IntPtr rect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CURSORINFO { public int cbSize; public int flags; public IntPtr hCursor; public POINT pt; }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorInfo(ref CURSORINFO info);
+
+    /// <summary>
+    /// Is an app (usually a game) holding the mouse: hiding the cursor or
+    /// fencing it into part of the screen?
+    /// </summary>
+    public static bool MouseIsCaptured()
+    {
+        var vs = VirtualScreen();
+        if (GetClipCursor(out var r) &&
+            (r.Left > vs.Left || r.Top > vs.Top || r.Right < vs.Right || r.Bottom < vs.Bottom))
+            return true;
+        var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+        return GetCursorInfo(ref ci) && (ci.flags & 1) == 0; // CURSOR_SHOWING not set
+    }
 
     public const uint ES_SYSTEM_REQUIRED = 0x00000001, ES_DISPLAY_REQUIRED = 0x00000002;
 

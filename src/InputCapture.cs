@@ -14,7 +14,8 @@ namespace KeyShare;
 internal sealed class InputCapture : IDisposable
 {
     private const byte None = 0, Local = 1, Remote = 2, Swallow = 3;
-    private const int VK_F12 = 0x7B, VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5;
+    private const int VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5,
+        VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
 
     private readonly Func<bool> _isConnected;
     private readonly Action<byte[]> _send;
@@ -32,6 +33,9 @@ internal sealed class InputCapture : IDisposable
     private readonly byte[] _buttonOwner = new byte[5];
 
     public Side OtherSide { get; set; } = Side.Right;
+    public SwitchKey SwitchKey { get; set; } = SwitchKey.Default;
+    /// <summary>The cursor came back to this PC by the switch key (so it may be hard to spot).</summary>
+    public event Action? ReturnedByKey;
     public bool IsRemote => _remote;
     public event Action<bool>? RemoteChanged;
 
@@ -71,9 +75,11 @@ internal sealed class InputCapture : IDisposable
 
     private void EnterRemote(bool center, float along)
     {
+        Log.Info(center ? "Control to the other PC (switch key)" : "Control to the other PC (edge)");
         _remote = true;
         var screen = Screen.PrimaryScreen?.Bounds ?? VirtualScreen();
         _park = new POINT(screen.Left + screen.Width / 2, screen.Top + screen.Height / 2);
+        ClipCursor(IntPtr.Zero); // a game here may have fenced the cursor in
         SetCursorPos(_park.X, _park.Y);
         _send(Protocol.Enter(center, OtherSide, along));
         RemoteChanged?.Invoke(true);
@@ -84,6 +90,7 @@ internal sealed class InputCapture : IDisposable
     {
         if (!_remote) return;
         _remote = false;
+        Log.Info(along < 0 ? "Control back to this PC (switch key)" : "Control back to this PC (edge)");
         if (tellOther) _send(Protocol.Leave);
 
         var vs = VirtualScreen();
@@ -111,6 +118,7 @@ internal sealed class InputCapture : IDisposable
 
         // Keys held on the other PC keep sending their "up" there (see _keyOwner).
         RemoteChanged?.Invoke(false);
+        if (along < 0) ReturnedByKey?.Invoke();
     }
 
     /// <summary>The link dropped: take control back without talking to the other PC.</summary>
@@ -125,6 +133,7 @@ internal sealed class InputCapture : IDisposable
     {
         if (_remote) ReturnToLocal(-1, tellOther: true);
         else if (_isConnected()) EnterRemote(center: true, 0.5f);
+        else Log.Info("Switch key pressed, but the other PC isn't connected");
     }
 
     private bool HitsEdge(POINT p, out float along)
@@ -179,9 +188,13 @@ internal sealed class InputCapture : IDisposable
                     }
                     return false;
                 }
-                int dx = m.pt.X - _park.X, dy = m.pt.Y - _park.Y;
+                // Measure from where the cursor really is, not from where we parked it:
+                // a game on this PC may keep moving it back to the middle of its window.
+                if (!GetCursorPos(out var cur)) cur = _park;
+                int dx = m.pt.X - cur.X, dy = m.pt.Y - cur.Y;
                 if (dx != 0 || dy != 0) { _send(Protocol.Move(dx, dy)); Power.NoteForwardedInput(); }
-                return true; // the local cursor stays parked
+                KeepParked(cur);
+                return true; // the local cursor stays put
 
             case WM_LBUTTONDOWN: return Button(0, true);
             case WM_LBUTTONUP: return Button(0, false);
@@ -201,8 +214,38 @@ internal sealed class InputCapture : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Keeps the cursor away from the screen edges and out of a game's mouse
+    /// fence while the other PC has control. Otherwise movement towards an edge
+    /// or fence would get cut off.
+    /// </summary>
+    private void KeepParked(POINT cur)
+    {
+        if (GetClipCursor(out var clip))
+        {
+            var vs = VirtualScreen();
+            if (clip.Left > vs.Left || clip.Top > vs.Top || clip.Right < vs.Right || clip.Bottom < vs.Bottom)
+                ClipCursor(IntPtr.Zero);
+        }
+        if (Math.Abs(cur.X - _park.X) > 100 || Math.Abs(cur.Y - _park.Y) > 100)
+            SetCursorPos(_park.X, _park.Y);
+    }
+
     private bool Button(int index, bool down)
     {
+        if (down && SwitchKey.IsMouse && index == SwitchKey.Button && _buttonOwner[index] == None && ModsMatch())
+        {
+            _buttonOwner[index] = Swallow; // and its release goes nowhere too
+            Log.Info($"Switch key ({SwitchKey}) pressed");
+            Toggle();
+            return true;
+        }
+        if (_buttonOwner[index] == Swallow)
+        {
+            if (!down) _buttonOwner[index] = None;
+            return true;
+        }
+
         byte owner = _buttonOwner[index];
         if (owner == None) owner = _remote ? Remote : Local;
         _buttonOwner[index] = down ? owner : None;
@@ -232,12 +275,12 @@ internal sealed class InputCapture : IDisposable
         int vk = (int)(k.vkCode & 0xFF);
         bool up = (k.flags & LLKHF_UP) != 0;
 
-        if (!up && vk == VK_F12 && _keyOwner[vk] == None &&
-            (_keyDown[VK_LCONTROL] || _keyDown[VK_RCONTROL]) && (_keyDown[VK_LMENU] || _keyDown[VK_RMENU]))
+        if (!up && !SwitchKey.IsMouse && vk == SwitchKey.Vk && _keyOwner[vk] == None && ModsMatch())
         {
-            // Ctrl+Alt+F12: switch PCs. The F12 itself goes nowhere.
+            // The switch key. The key itself goes nowhere, and neither does its release.
             _keyOwner[vk] = Swallow;
             _keyDown[vk] = true;
+            Log.Info($"Switch key ({SwitchKey}) pressed");
             Toggle();
             return true;
         }
@@ -252,6 +295,16 @@ internal sealed class InputCapture : IDisposable
         _send(Protocol.Key(vk, (int)k.scanCode, up, (k.flags & LLKHF_EXTENDED) != 0));
         Power.NoteForwardedInput();
         return true;
+    }
+
+    /// <summary>Exactly the switch key's modifiers are held (no more, no fewer).</summary>
+    private bool ModsMatch()
+    {
+        int held = (_keyDown[VK_LCONTROL] || _keyDown[VK_RCONTROL] ? SwitchKey.Ctrl : 0) |
+                   (_keyDown[VK_LMENU] || _keyDown[VK_RMENU] ? SwitchKey.Alt : 0) |
+                   (_keyDown[VK_LSHIFT] || _keyDown[VK_RSHIFT] ? SwitchKey.Shift : 0) |
+                   (_keyDown[VK_LWIN] || _keyDown[VK_RWIN] ? SwitchKey.Win : 0);
+        return held == SwitchKey.Mods;
     }
 
     public void Dispose()

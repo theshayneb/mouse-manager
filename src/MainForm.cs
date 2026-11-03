@@ -40,9 +40,12 @@ internal sealed class MainForm : Form
     private readonly Label _lblTip = new()
     {
         AutoSize = true, MaximumSize = new Size(440, 0), ForeColor = SystemColors.GrayText,
-        Text = "Move the mouse off the screen edge to switch PCs, or press Ctrl+Alt+F12. " +
-               "Minimizing sends KeyShare to the tray.",
     };
+    private readonly Label _lblSwitchKey = new() { AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 7, 8, 3), Font = new Font("Segoe UI", 9.75f, FontStyle.Bold) };
+    private readonly Button _btnSwitchKey = new() { Text = "Change…", AutoSize = true };
+    private ToolStripItem? _menuSwitch;
+    private const int HotKeyId = 1;
+    private bool _hotKeyRegistered;
 
     private readonly NotifyIcon _tray = new();
     private HostService? _host;
@@ -72,12 +75,14 @@ internal sealed class MainForm : Form
         _tray.DoubleClick += (_, _) => ShowFromTray();
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open KeyShare", null, (_, _) => ShowFromTray());
-        menu.Items.Add("Switch PC  (Ctrl+Alt+F12)", null, (_, _) => _capture?.Toggle());
+        _menuSwitch = menu.Items.Add("Switch PC", null, (_, _) => _capture?.Toggle());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Close());
         _tray.ContextMenuStrip = menu;
 
         _lblCode.Text = _settings.HostCode;
+        _btnSwitchKey.Click += (_, _) => ChooseSwitchKey();
+        ShowSwitchKey();
         _cbSide.Items.AddRange(["Left", "Right", "Above", "Below"]);
         _cbSide.SelectedIndex = (int)_settings.OtherSide;
         _tbCode.Text = _settings.JoinCode;
@@ -143,7 +148,9 @@ internal sealed class MainForm : Form
         hostGrid.Controls.Add(codeRow, 1, 0);
         hostGrid.Controls.Add(Caption("Other PC is"), 0, 1);
         hostGrid.Controls.Add(Row(_cbSide, new Label { Text = "of this screen", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 7, 3, 3) }), 1, 1);
-        hostGrid.Controls.Add(_btnHost, 1, 2);
+        hostGrid.Controls.Add(Caption("Switch key"), 0, 2);
+        hostGrid.Controls.Add(Row(_lblSwitchKey, _btnSwitchKey), 1, 2);
+        hostGrid.Controls.Add(_btnHost, 1, 3);
         _hostBox.Controls.Add(hostGrid);
         root.Controls.Add(_hostBox);
 
@@ -237,6 +244,8 @@ internal sealed class MainForm : Form
         _settings.HostCode = Protocol.NewCode();
         _settings.Save();
         _lblCode.Text = _settings.HostCode;
+        _btnSwitchKey.Click += (_, _) => ChooseSwitchKey();
+        ShowSwitchKey();
         if (wasRunning) StartHost();
     }
 
@@ -246,7 +255,8 @@ internal sealed class MainForm : Form
         try
         {
             var host = new HostService(_settings.HostCode);
-            var capture = new InputCapture(() => host.IsConnected, host.Send) { OtherSide = _settings.OtherSide };
+            var capture = new InputCapture(() => host.IsConnected, host.Send) { OtherSide = _settings.OtherSide, SwitchKey = _settings.SwitchKey };
+            capture.ReturnedByKey += () => OnUi(CursorLocator.ShowAtCursor);
             host.Status += s => OnUi(() => SetStatus(s));
             host.Connected += name => OnUi(() =>
             {
@@ -263,6 +273,7 @@ internal sealed class MainForm : Form
             capture.RemoteChanged += remote => OnUi(() => SetRemote(remote));
 
             host.Start();
+            RegisterSwitchHotKey();
             _host = host;
             _capture = capture;
             _settings.Running = true;
@@ -298,6 +309,7 @@ internal sealed class MainForm : Form
         var client = new ClientService(code, _settings.JoinAddress);
         client.Status += s => OnUi(() => SetStatus(s));
         client.ClipboardChunk += ReceiveClipboard;
+        client.ArrivedByKey += () => OnUi(CursorLocator.ShowAtCursor);
         client.ActiveChanged += active => OnUi(() => _tray.Text = active ? "KeyShare: controlled remotely" : "KeyShare");
         _client = client;
         client.Start();
@@ -306,6 +318,7 @@ internal sealed class MainForm : Form
 
     private void StopAll()
     {
+        UnregisterSwitchHotKey();
         _capture?.Dispose();
         _capture = null;
         _host?.Dispose();
@@ -379,6 +392,62 @@ internal sealed class MainForm : Form
         }
     }
 
+    // ---- Switch key ----------------------------------------------------------
+
+    private void ShowSwitchKey()
+    {
+        var key = _settings.SwitchKey;
+        _lblSwitchKey.Text = key.ToString();
+        _lblTip.Text = $"Move the mouse off the screen edge to switch PCs, or press {key}. " +
+                       "In full-screen games, use the switch key. Minimizing sends KeyShare to the tray.";
+        if (_menuSwitch != null) _menuSwitch.Text = $"Switch PC  ({key})";
+    }
+
+    private void ChooseSwitchKey()
+    {
+        // The current key would switch PCs while you press it in the dialog; pause it.
+        var old = _settings.SwitchKey;
+        UnregisterSwitchHotKey();
+        if (_capture != null) _capture.SwitchKey = new SwitchKey(0, 0, 0); // matches nothing
+        try
+        {
+            using var dlg = new SwitchKeyDialog();
+            if (dlg.ShowDialog(this) == DialogResult.OK && dlg.Result != null)
+            {
+                _settings.SwitchKey = dlg.Result;
+                _settings.Save();
+                Log.Info($"Switch key changed from {old} to {dlg.Result}");
+            }
+        }
+        finally
+        {
+            if (_capture != null) _capture.SwitchKey = _settings.SwitchKey;
+            if (_host != null) RegisterSwitchHotKey();
+            ShowSwitchKey();
+        }
+    }
+
+    /// <summary>
+    /// Second route for the switch key, through Windows' own hotkey system. The
+    /// keyboard hook normally handles the key first and swallows it, so this
+    /// only fires if the hook didn't get it.
+    /// </summary>
+    private void RegisterSwitchHotKey()
+    {
+        UnregisterSwitchHotKey();
+        var key = _settings.SwitchKey;
+        if (key.IsMouse) return;
+        _hotKeyRegistered = Native.RegisterHotKey(Handle, HotKeyId, key.HotKeyModifiers, (uint)key.Vk);
+        if (!_hotKeyRegistered)
+            Log.Info($"Backup hotkey {key} unavailable (another app uses it); the keyboard hook still handles it");
+    }
+
+    private void UnregisterSwitchHotKey()
+    {
+        if (_hotKeyRegistered) Native.UnregisterHotKey(Handle, HotKeyId);
+        _hotKeyRegistered = false;
+    }
+
     private void ReinstallHooks()
     {
         try { _capture?.Reinstall(); }
@@ -405,6 +474,14 @@ internal sealed class MainForm : Form
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == Native.WM_HOTKEY && (int)m.WParam == HotKeyId)
+        {
+            // Only reaches us if the keyboard hook missed the key (it swallows it otherwise),
+            // for example while a program running as administrator has focus.
+            Log.Info("Switch key arrived by the backup route");
+            _capture?.Toggle();
+            return;
+        }
         if (m.Msg == Native.WM_CLIPBOARDUPDATE && Environment.TickCount64 >= _ignoreClipboardUntil)
         {
             // Apps often update the clipboard several times in a row; send once it settles.
@@ -485,7 +562,7 @@ internal sealed class MainForm : Form
 
     private void SetRemote(bool remote)
     {
-        _lblStatus.Text = remote ? "Controlling the other PC. Ctrl+Alt+F12 comes back." : _baseStatus;
+        _lblStatus.Text = remote ? $"Controlling the other PC. {_settings.SwitchKey} comes back." : _baseStatus;
         _tray.Text = remote ? "KeyShare: controlling the other PC" : "KeyShare";
     }
 

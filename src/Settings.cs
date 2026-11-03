@@ -12,6 +12,16 @@ internal sealed class Settings
     public string JoinAddress { get; set; } = "";
     public bool ShareClipboard { get; set; } = true;
     public bool StayAwakeTogether { get; set; } = true;
+    public int SwitchMods { get; set; } = SwitchKey.Default.Mods;
+    public int SwitchVk { get; set; } = SwitchKey.Default.Vk;
+    public int SwitchButton { get; set; } = SwitchKey.Default.Button;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SwitchKey SwitchKey
+    {
+        get { var k = new SwitchKey(SwitchMods, SwitchVk, SwitchButton); return k.IsValid ? k : SwitchKey.Default; }
+        set { SwitchMods = value.Mods; SwitchVk = value.Vk; SwitchButton = value.Button; }
+    }
     /// <summary>Was sharing/connected when the app closed; resume on next start.</summary>
     public bool Running { get; set; }
 

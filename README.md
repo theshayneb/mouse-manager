@@ -39,8 +39,16 @@ Then:
 
 - Move the mouse off the edge you picked to control the other PC. Move it back
   off the opposite edge to return.
-- **Ctrl+Alt+F12** switches PCs from anywhere. It's also how you get back if the
-  edges don't line up.
+- **The switch key** (Ctrl+Alt+F12 unless you change it) switches PCs from
+  anywhere. To pick your own, click **Change…** next to **Switch key** on the
+  sharing PC and press a key or combination, or click a middle or side mouse
+  button. Scroll Lock, Pause or a side mouse button work well in games. After
+  switching with the key, a yellow ring briefly shows where the pointer is.
+- **Full-screen games** lock the pointer in the middle of the screen, so it
+  never reaches an edge. Use the switch key to leave and come back. A game on
+  the PC being controlled gets real mouse movement, so you can play it with the
+  shared mouse. If a game runs as administrator and the switch key does
+  nothing, run KeyShare as administrator too.
 - The edge doesn't switch while a mouse button is held, so dragging a window to
   snap it still works.
 - The other PC's own keyboard and mouse keep working.

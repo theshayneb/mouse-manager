@@ -60,4 +60,22 @@ internal static class UnlockNative
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool CloseDesktop(IntPtr desktop);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool GetUserObjectInformation(IntPtr obj, int index, StringBuilder? info, int length, out int needed);
+
+    public static string DesktopName(IntPtr desktop)
+    {
+        var sb = new StringBuilder(256);
+        return GetUserObjectInformation(desktop, 2 /* UOI_NAME */, sb, sb.Capacity * 2, out _) ? sb.ToString() : "?";
+    }
+
+    public const int WTSSessionInfoEx = 25;
+    public const int WTS_SESSIONSTATE_LOCK = 0;
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    public static extern bool WTSQuerySessionInformation(IntPtr server, uint sessionId, int infoClass, out IntPtr buffer, out int bytesReturned);
+
+    [DllImport("wtsapi32.dll")]
+    public static extern void WTSFreeMemory(IntPtr memory);
 }

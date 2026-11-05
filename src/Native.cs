@@ -141,6 +141,9 @@ internal static class Native
 
     private static readonly int InputSize = Marshal.SizeOf<INPUT>();
 
+    /// <summary>Sends one input; false if Windows refused it.</summary>
+    public static bool SendChecked(INPUT input) => SendInput(1, [input], InputSize) == 1;
+
     public static void Send(params INPUT[] inputs)
     {
         if (inputs.Length > 0) SendInput((uint)inputs.Length, inputs, InputSize);

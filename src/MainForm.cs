@@ -21,6 +21,10 @@ internal sealed class MainForm : Form
     private readonly TextBox _tbCode = new() { Width = 160, CharacterCasing = CharacterCasing.Upper, Font = new Font("Consolas", 14f), PlaceholderText = "XXXX-XXXX" };
     private readonly TextBox _tbAddress = new() { Width = 160, PlaceholderText = "automatic" };
     private readonly Button _btnJoin = new() { AutoSize = true, MinimumSize = new Size(140, 0) };
+    private readonly Label _lblUnlock = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(22, 0, 3, 3), Anchor = AnchorStyles.Left };
+    private readonly LinkLabel _lnkUpdateUnlock = new() { Text = "Update it", AutoSize = true, Visible = false, Margin = new Padding(0, 0, 3, 3), Anchor = AnchorStyles.Left };
+    private readonly System.Windows.Forms.Timer _unlockTimer = new() { Interval = 10_000 };
+    private bool _unlockOutOfDate;
     private readonly CheckBox _cbUnlock = new()
     {
         Text = "Let the other PC type on this PC's lock screen (asks for admin once)",
@@ -108,6 +112,10 @@ internal sealed class MainForm : Form
 
         _cbUnlock.Checked = UnlockService.IsInstalled();
         _cbUnlock.Click += async (_, _) => await ToggleUnlockServiceAsync();
+        _lnkUpdateUnlock.LinkClicked += async (_, _) => await UpdateUnlockServiceAsync();
+        _unlockTimer.Tick += (_, _) => RefreshUnlockStatus();
+        _unlockTimer.Start();
+        _ = CheckUnlockVersionAsync();
 
         SystemEvents.SessionSwitch += OnSessionSwitch;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -162,6 +170,9 @@ internal sealed class MainForm : Form
         joinGrid.Controls.Add(_btnJoin, 1, 2);
         joinGrid.Controls.Add(_cbUnlock, 0, 3);
         joinGrid.SetColumnSpan(_cbUnlock, 2);
+        var unlockRow = Row(_lblUnlock, _lnkUpdateUnlock);
+        joinGrid.Controls.Add(unlockRow, 0, 4);
+        joinGrid.SetColumnSpan(unlockRow, 2);
         _joinBox.Controls.Add(joinGrid);
         root.Controls.Add(_joinBox);
 
@@ -389,7 +400,43 @@ internal sealed class MainForm : Form
         {
             _cbUnlock.Checked = UnlockService.IsInstalled();
             _cbUnlock.Enabled = true;
+            await CheckUnlockVersionAsync();
         }
+    }
+
+    private async Task UpdateUnlockServiceAsync()
+    {
+        _lnkUpdateUnlock.Enabled = false;
+        try { await UnlockService.RunElevatedAsync("--install-service"); }
+        catch (Exception ex) { Log.Error("Updating lock-screen helper", ex); }
+        finally
+        {
+            _lnkUpdateUnlock.Enabled = true;
+            await CheckUnlockVersionAsync();
+        }
+    }
+
+    private async Task CheckUnlockVersionAsync()
+    {
+        _unlockOutOfDate = await Task.Run(UnlockService.IsOutOfDate);
+        if (_unlockOutOfDate) Log.Info("Lock-screen helper is older than this KeyShare");
+        RefreshUnlockStatus();
+    }
+
+    /// <summary>Shows whether lock-screen typing will work, and connects to the helper ahead of time.</summary>
+    private void RefreshUnlockStatus()
+    {
+        if (!_cbUnlock.Checked)
+        {
+            _lblUnlock.Text = "";
+            _lnkUpdateUnlock.Visible = false;
+            return;
+        }
+        bool ready = InputSink.TryConnect();
+        _lnkUpdateUnlock.Visible = _unlockOutOfDate;
+        _lblUnlock.Text = _unlockOutOfDate ? "The lock-screen helper is out of date."
+            : ready ? "Ready: you can type on this PC's lock screen."
+            : "The lock-screen helper isn't responding. Untick and tick the box to restart it.";
     }
 
     // ---- Switch key ----------------------------------------------------------

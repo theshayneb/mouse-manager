@@ -30,6 +30,27 @@ internal static class UnlockService
         catch { return false; }
     }
 
+    /// <summary>Is the copy the service runs older (different) than this exe? Slow: reads both files.</summary>
+    public static bool IsOutOfDate()
+    {
+        try
+        {
+            if (!IsInstalled() || !File.Exists(InstalledExe)) return false;
+            var mine = new FileInfo(Environment.ProcessPath!);
+            var theirs = new FileInfo(InstalledExe);
+            if (string.Equals(mine.FullName, theirs.FullName, StringComparison.OrdinalIgnoreCase)) return false;
+            if (mine.Length != theirs.Length) return true;
+            using var a = File.OpenRead(mine.FullName);
+            using var b = File.OpenRead(theirs.FullName);
+            return !System.Security.Cryptography.SHA256.HashData(a).AsSpan().SequenceEqual(System.Security.Cryptography.SHA256.HashData(b));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Checking lock-screen helper version", ex);
+            return false;
+        }
+    }
+
     /// <summary>Runs this exe with <paramref name="argument"/> as administrator (shows the UAC prompt) and waits.</summary>
     /// <returns>true on success, false if cancelled or failed.</returns>
     public static async Task<bool> RunElevatedAsync(string argument)

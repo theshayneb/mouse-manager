@@ -111,6 +111,7 @@ SYSTEM account can. So this option installs a small Windows service named
 - It works when the PC is **locked** (KeyShare is still running). It doesn't
   work on the sign-in screen right after a restart or sign-out, because KeyShare
   isn't running yet. Sign in with that PC's own keyboard there.
-- **After updating KeyShare,** untick and tick the box again so the service gets
-  the new version too.
+- Under the box, KeyShare says whether lock-screen typing is ready. **After
+  updating KeyShare,** it says the helper is out of date: click **Update it**
+  (one admin prompt) so the service gets the new version too.
 - Untick the box to remove the service and its files.

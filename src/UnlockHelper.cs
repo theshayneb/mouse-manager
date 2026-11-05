@@ -312,7 +312,7 @@ internal static class InputSink
             }
             catch (IOException)
             {
-                _pipe.Dispose();
+                _pipe?.Dispose();
                 _pipe = null;
                 return false;
             }
